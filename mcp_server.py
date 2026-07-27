@@ -3,25 +3,20 @@ import re
 import requests
 import csv
 import io
-from mcp.server.fastmcp import FastMCP
 import os
+from mcp.server.fastmcp import FastMCP
+from dotenv import load_dotenv
 
 # ==========================================
-# ✏️ Download environment variables from .env file
+# ✏️ ENVIRONMENT VARIABLES
 # ==========================================
-from dotenv import load_dotenv
 load_dotenv()
 
-# ==========================================
-# ✏️ CONFIGURATION & CREDENTIALS
-# ==========================================
 JIRA_URL = os.getenv("JIRA_URL")
 JIRA_EMAIL = os.getenv("JIRA_EMAIL")
-
 JIRA_TOKEN = os.getenv("JIRA_TOKEN")
 XRAY_CLIENT_ID = os.getenv("XRAY_CLIENT_ID")
 XRAY_CLIENT_SECRET = os.getenv("XRAY_CLIENT_SECRET")
-
 
 if not all([JIRA_TOKEN, XRAY_CLIENT_ID, XRAY_CLIENT_SECRET]):
     raise ValueError("Missing required environment variables for Jira or Xray!")
@@ -61,18 +56,6 @@ def get_xray_cloud_token() -> str:
 def export_tests_to_csv(tests_json: str) -> str:
     """
     [SENIOR QA EXPORT TOOL] Converts test cases data into a CSV format compatible with Jira/Xray manual import.
-    
-    Args:
-        tests_json: A JSON string containing a list of tests, e.g.:
-        [
-            {
-                "summary": "Test login with valid credentials",
-                "steps": [
-                    {"action": "Open login page", "result": "Page is visible"},
-                    {"action": "Enter credentials", "result": "Dashboard opens"}
-                ]
-            }
-        ]
     """
     try:
         tests = json.loads(tests_json)
@@ -81,8 +64,6 @@ def export_tests_to_csv(tests_json: str) -> str:
 
         output = io.StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-        
-        # Headers for Xray/Jira standard CSV import
         writer.writerow(["Summary", "Test Type", "Step Action", "Step Data", "Step Expected Result"])
 
         for test in tests:
@@ -94,7 +75,6 @@ def export_tests_to_csv(tests_json: str) -> str:
             else:
                 for idx, step in enumerate(steps):
                     row_summary = summary if idx == 0 else ""
-                    # Handle both AI generation styles ("result" or "expectedResult")
                     exp_result = step.get("expectedResult") or step.get("result", "")
                     
                     writer.writerow([
@@ -112,9 +92,9 @@ def export_tests_to_csv(tests_json: str) -> str:
         return f"❌ Failed to parse tests_json: {e}"
     except Exception as e:
         return f"❌ Unexpected error during CSV generation: {str(e)}"
-    
+
 # ==========================================
-# READ TOOLS (Context & Analysis)
+# READ TOOLS
 # ==========================================
 
 @mcp.tool()
@@ -254,17 +234,12 @@ def get_test_case_details(test_key: str) -> str:
         return f"Error querying Xray GraphQL: {str(e)}"
 
 # ==========================================
-# WRITE TOOLS (Strict Senior QA Gatekeepers)
+# WRITE TOOLS
 # ==========================================
 
 @mcp.tool()
 def link_existing_test_to_story(test_key: str, story_key: str, link_type_name: str = "Test", confirmed: bool = False) -> str:
-    """
-    [SENIOR QA RESTRICTED] Links an existing test to a story.
-    
-    STRICT RULE FOR AI: Never execute without user approval. 
-    You MUST output a clear plan (Where, What, Why) first and wait for user confirmation (confirmed=True).
-    """
+    """[SENIOR QA RESTRICTED] Links an existing test to a story."""
     if not confirmed:
         return f"❌ ACCESS DENIED: You must present a plan to the user and obtain explicit confirmation before linking {test_key} to {story_key}."
 
@@ -283,11 +258,7 @@ def link_existing_test_to_story(test_key: str, story_key: str, link_type_name: s
 
 @mcp.tool()
 def post_review_comment(story_key: str, comment_text: str, confirmed: bool = False) -> str:
-    """
-    [SENIOR QA RESTRICTED] Posts a QA review report comment to a Jira Story.
-    
-    STRICT RULE FOR AI: Show the review text to the user first and get explicit permission (confirmed=True).
-    """
+    """[SENIOR QA RESTRICTED] Posts a QA review report comment to a Jira Story."""
     if not confirmed:
         return f"❌ ACCESS DENIED: Show the review comment to the user and get confirmation before posting to {story_key}."
 
@@ -313,12 +284,7 @@ def post_review_comment(story_key: str, comment_text: str, confirmed: bool = Fal
 
 @mcp.tool()
 def add_steps_to_existing_test(test_key: str, steps_json: str, confirmed: bool = False) -> str:
-    """
-    [SENIOR QA RESTRICTED] Adds steps to an existing Test Case via Xray Cloud GraphQL.
-    
-    STRICT RULE FOR AI: Never call this without user approval. 
-    You MUST display the exact steps payload and rationale to the user first, then wait for 'confirmed=True'.
-    """
+    """[SENIOR QA RESTRICTED] Adds steps to an existing Test Case via Xray Cloud GraphQL."""
     if not confirmed:
         return f"❌ ACCESS DENIED: You did not obtain user approval to modify {test_key}. Present the steps plan first."
 
@@ -357,14 +323,15 @@ def add_steps_to_existing_test(test_key: str, steps_json: str, confirmed: bool =
         execution_logs = []
 
         for idx, step in enumerate(steps, start=1):
-            # Универсально обрабатываем ключи result или expectedResult
             exp_result = step.get("expectedResult") or step.get("result", "")
             
+            # Xray Cloud GraphQL схема ожидает ключ "result" в CreateStepInput
             variables = {
                 "issueId": issue_id,
                 "step": {
                     "action": str(step.get("action", "")),
-                    "expectedResult": str(exp_result)
+                    "data": str(step.get("data", "")),
+                    "result": str(exp_result)
                 }
             }
             
@@ -393,12 +360,7 @@ def add_steps_to_existing_test(test_key: str, steps_json: str, confirmed: bool =
 
 @mcp.tool()
 def create_xray_test(project_key: str, story_key: str, summary: str, steps_json: str, confirmed: bool = False) -> str:
-    """
-    [SENIOR QA RESTRICTED] Creates a new Test Case, links it to a Story, and adds steps.
-    
-    STRICT RULE FOR AI: Present a full creation plan (summary, steps, target story) to the user 
-    and obtain explicit confirmation (confirmed=True) before execution.
-    """
+    """[SENIOR QA RESTRICTED] Creates a new Test Case, links it to a Story, and adds steps."""
     if not confirmed:
         return f"❌ ACCESS DENIED: You must show the test creation plan to the user and get confirmation first."
 
